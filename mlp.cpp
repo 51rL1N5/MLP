@@ -4,9 +4,11 @@
 #include <vector>
 #include <functional>
 #include <cmath>
+#include <ctime>
+#include <cstdlib>
 
-#define ETA   0.1
-#define ALPHA 0.1
+#define ETA   0.2
+#define ALPHA 0
 
 
 using namespace std;
@@ -16,6 +18,9 @@ using namespace arma;
 
 int main(int argc, char** argv)
 {
+
+  srand(time(NULL));
+
   int N_H_LAYERS     =              1;
   int N_TOTAL_LAYERS = N_H_LAYERS + 2;
 
@@ -23,21 +28,31 @@ int main(int argc, char** argv)
 
   Mat <double> W[N_TOTAL_LAYERS - 1];
 
+  int epoch = 0;
 
-  function<void (Mat<double> & )> sigma   = [] (Mat<double> & M)
-                                         {
-                                           M.for_each([](double & val)
-                                           {
-                                             val = 1 / ( 1+ exp(-val));
-                                           }
-                                       );};
-  function<void (Mat<double> &)> d_sigma = [] (Mat<double> & M)
-                                         {
-                                           M.for_each([](double & val)
-                                           {
-                                             val = (1 / ( 1+ exp(-val))) * ( 1 - 1 / ( 1+ exp(-val)) ) ;
-                                           }
-                                       );};
+  Mat <double> d = {-1, 1, 1, -1};
+  Mat <double> error;
+  Mat<double> delta;
+  double MSE;
+
+  function<Mat<double> (Mat<double> )> sigma   = [] (Mat<double> M)
+                                               {
+                                                 M.for_each([](double & val)
+                                                 {
+                                                   val = 1 / ( 1+ exp(-val));
+                                                 }
+                                               );
+                                                return M;
+                                               };
+  function<Mat<double> (Mat<double> )> d_sigma = [] (Mat<double> M)
+                                               {
+                                                 M.for_each([](double & val)
+                                                 {
+                                                   val = (1 / ( 1+ exp(-val))) * ( 1 - 1 / ( 1+ exp(-val)) ) ;
+                                                 }
+                                               );
+                                                 return M;
+                                                };
 
 
   // GERAR AS MATRIZES DE PESO ALEATORIOS
@@ -49,7 +64,7 @@ int main(int argc, char** argv)
   // PROPAGACAO DIRETA
 
   // VETOR DE MATRIZES Y (SAIDAS DE CADA CAMADA COM A ATIVACAO)
-  Mat<double> Y[N_TOTAL_LAYERS];
+  Mat<double> Y[N_TOTAL_LAYERS], dW[N_TOTAL_LAYERS - 1] ;
 
   // Y[0] CORRESPONDE A ENTRADA
   Y[0] = {
@@ -64,14 +79,51 @@ int main(int argc, char** argv)
   B(0,2) = -1;
   B(0,3) = -1;
 
-  for (int i = 1; i <= N_TOTAL_LAYERS; i++)
+  double lim = pow(10,-30);
+
+  do
   {
-    cout << W[i-1] << endl;
-    cout << Y[i-1] << endl;
+
+  for (int i = 1; i < N_TOTAL_LAYERS; i++)
+  {
     Y[i] =  W[i-1] * join_cols( B, Y[i-1]);
-    sigma( Y[i] );
+    Y[i] = sigma( Y[i] );
   }
 
-  cout << Y[N_TOTAL_LAYERS];
+
+  error = d - Y[N_TOTAL_LAYERS -1];
+
+  MSE = trace(error.t() * error)/4;
+  if ( MSE <= lim || epoch == 10000) break;
+
+  for (int i = N_TOTAL_LAYERS - 2; i > 0; i--)
+  {
+  //  dW[N_TOTAL_LAYERS - 2] = ETA * delta * join_cols( B, Y[i-1]) + ALPHA * dW[N_TOTAL_LAYERS - 2];
+  //  W[N_TOTAL_LAYERS - 2] = W[N_TOTAL_LAYERS - 2];
+
+    if (i == N_TOTAL_LAYERS - 2)
+      delta = d_sigma( Y[i+1]) % error;
+    else
+      delta = d_sigma(join_cols( B, Y[i+1])) % (W[i+1].t() * delta);
+
+    if (epoch != 0)
+      dW[i] = ETA * delta * join_cols(B,Y[i]).t() + ALPHA * dW[i];
+    else
+      dW[i] = ETA * delta* join_cols(B,Y[i]).t();
+/*
+    cout << "------------------------" << endl;
+    cout << Y[i + 1] << endl << endl;
+    cout << delta << endl << endl;
+    cout << dW[i] << endl << endl;
+    cout << W[i] << endl;
+*/
+    W[i] = W[i] + dW[i];
+  }
+  epoch++;
+
+  cout <<"Epoch: " << epoch <<" MSE: " << MSE <<" BEST : " << Y[N_TOTAL_LAYERS - 1] << "\n------------------" << endl;
+  }while(true);
+
+  cout << Y[N_TOTAL_LAYERS - 1];
   return 0;
 }
